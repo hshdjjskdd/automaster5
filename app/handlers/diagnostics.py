@@ -68,19 +68,24 @@ async def diagnostics_action(
             await _edit(callback, td.render_run(run), kb.entry_keyboard(oid))
         elif action in ("concl", "tog"):
             mask = callback_data.n
+            system: int | None = None
             if action == "tog":
-                bit = 1 << int(callback_data.arg)
+                idx = int(callback_data.arg)
+                bit = 1 << idx
                 if not mask & bit and len(kb.selected_causes(mask)) >= td.CONCLUSION_LIMIT:
                     await callback.answer(
                         f"Можно выбрать не более {td.CONCLUSION_LIMIT} причин.", show_alert=True
                     )
                     return
                 mask ^= bit
-            await service.get_overview(player_id, oid)  # проверка доступа к заказу
+                system = kb.system_of(idx)
+            elif callback_data.arg.startswith("s"):
+                system = int(callback_data.arg[1:])
+            allowed = await service.conclusion_causes(player_id, oid)
             await _edit(
                 callback,
                 td.render_conclusion_form(kb.selected_causes(mask)),
-                kb.conclusion_keyboard(oid, mask),
+                kb.conclusion_keyboard(oid, mask, allowed, system),
             )
         elif action == "concl_ok":
             codes = [CAUSES[i].code for i in kb.selected_causes(callback_data.n)]

@@ -11,12 +11,31 @@ from dataclasses import dataclass
 from app.game_data.enums import FaultSeverity
 
 
+Requires = tuple[tuple[str, tuple[object, ...]], ...]
+
+
+def _req(**conditions: object) -> Requires:
+    """Условия применимости по тегам автомобиля: ключ -> допустимые значения."""
+    return tuple(
+        (key, tuple(value) if isinstance(value, (tuple, list, set, frozenset)) else (value,))
+        for key, value in conditions.items()
+    )
+
+
+def matches(requires: Requires, tags: "dict[str, object] | None") -> bool:
+    """True, если автомобиль с данными тегами подходит под условия. Без тегов — всегда."""
+    if tags is None:
+        return True
+    return all(tags.get(key) in allowed for key, allowed in requires)
+
+
 @dataclass(frozen=True, slots=True)
 class Cause:
     code: str  # до 16 символов: хранится в faults.code
     name: str
     system: str
     severity: FaultSeverity
+    requires: Requires = ()  # на каких автомобилях неисправность вообще возможна
 
 
 CAUSES: tuple[Cause, ...] = (
@@ -39,6 +58,36 @@ CAUSES: tuple[Cause, ...] = (
     Cause("SUSP_LINK", "Изношенная стойка стабилизатора", "Подвеска", FaultSeverity.MINOR),
     Cause("SUSP_STRUT", "Изношенный амортизатор", "Подвеска", FaultSeverity.MODERATE),
     Cause("OIL_LEAK", "Течь масла (прокладка / сальник)", "Двигатель", FaultSeverity.MODERATE),
+    # --- этап 5: расширенный справочник (дописывается в конец: индексы старых не меняются) ---
+    Cause("CLUTCH_WORN", "Изношенное сцепление", "Сцепление", FaultSeverity.SERIOUS, _req(trans="MT")),
+    Cause("GEARBOX_FLUID", "Низкий уровень / старое масло в КПП", "Коробка передач", FaultSeverity.MODERATE),
+    Cause("CV_JOINT", "Изношенный шарнир привода (ШРУС)", "Трансмиссия", FaultSeverity.MODERATE),
+    Cause("WHEEL_BEARING", "Изношенный ступичный подшипник", "Подвеска", FaultSeverity.MODERATE),
+    Cause("TIE_ROD", "Люфт рулевого наконечника", "Рулевое управление", FaultSeverity.MODERATE),
+    Cause("PS_LEAK", "Течь гидроусилителя руля", "Рулевое управление", FaultSeverity.MODERATE, _req(steering="hyd")),
+    Cause("TIMING_WORN", "Износ привода ГРМ (ремень / цепь)", "Двигатель", FaultSeverity.SERIOUS),
+    Cause("HEAD_GASKET", "Пробита прокладка ГБЦ", "Двигатель", FaultSeverity.CRITICAL),
+    Cause("TURBO_WORN", "Износ турбокомпрессора", "Двигатель", FaultSeverity.SERIOUS, _req(turbo=True)),
+    Cause("AC_LOW_GAS", "Утечка хладагента кондиционера", "Кондиционер", FaultSeverity.MINOR, _req(ac=True)),
+    Cause("AC_COMP", "Неисправен компрессор кондиционера", "Кондиционер", FaultSeverity.MODERATE, _req(ac=True)),
+    Cause("O2_SENSOR", "Неисправен датчик кислорода", "Датчики", FaultSeverity.MINOR, _req(injection=("mpi", "gdi"))),
+    Cause("ECT_SENSOR", "Неисправен датчик температуры ОЖ", "Датчики", FaultSeverity.MINOR, _req(ecu=True)),
+    Cause("THROTTLE_DIRTY", "Загрязнена дроссельная заслонка", "Впуск", FaultSeverity.MINOR, _req(injection=("mpi", "gdi"))),
+    Cause("INJECTORS", "Засорены форсунки", "Топливо", FaultSeverity.MODERATE, _req(injection=("mpi", "gdi", "diesel"))),
+    Cause("CARB_DIRTY", "Загрязнён карбюратор (жиклёры)", "Топливо", FaultSeverity.MODERATE, _req(injection="carb")),
+    Cause("GLOW_FAIL", "Неисправны свечи накала", "Зажигание", FaultSeverity.MODERATE, _req(fuel="diesel")),
+)
+
+# Исправления применимости старых причин: без этого на карбюраторных и дизельных
+# машинах возникали бы невозможные поломки (катушка на трамблёрной системе и т. п.).
+_LEGACY_REQUIRES: dict[str, Requires] = {
+    "COIL_FAIL": _req(ignition=("coil", "module")),
+    "MAF_DIRTY": _req(injection=("mpi", "gdi", "diesel")),
+    "PLUGS_WORN": _req(fuel=("petrol", "lpg", "hybrid")),
+}
+CAUSES = tuple(
+    Cause(c.code, c.name, c.system, c.severity, _LEGACY_REQUIRES.get(c.code, c.requires))
+    for c in CAUSES
 )
 
 CAUSE_BY_CODE: dict[str, Cause] = {c.code: c for c in CAUSES}
@@ -83,6 +132,26 @@ SCENARIO_CAUSES: dict[str, tuple[tuple[str, int], ...]] = {
     ),
 }
 
+SCENARIO_CAUSES.update(
+    {
+        "clutch_slip": (("CLUTCH_WORN", 6), ("GEARBOX_FLUID", 1)),
+        "gearbox_jerk": (("GEARBOX_FLUID", 5), ("ECT_SENSOR", 1), ("WIRE_CORR", 1)),
+        "cv_crunch": (("CV_JOINT", 5), ("WHEEL_BEARING", 3), ("SUSP_LINK", 1)),
+        "steering_play": (("TIE_ROD", 4), ("WHEEL_BEARING", 2), ("SUSP_LINK", 2)),
+        "steering_hard": (("PS_LEAK", 5), ("TIE_ROD", 1)),
+        "wheel_hum": (("WHEEL_BEARING", 5), ("CV_JOINT", 1), ("BRAKE_PADS_WORN", 1)),
+        "timing_noise": (("TIMING_WORN", 5), ("PLUGS_WORN", 1), ("OIL_LEAK", 1)),
+        "white_smoke": (("HEAD_GASKET", 5), ("COOLANT_LEAK", 3), ("THERMOSTAT_STUCK", 1)),
+        "ac_warm": (("AC_LOW_GAS", 4), ("AC_COMP", 3), ("FUSE_BLOWN", 1), ("FAN_FAIL", 1)),
+        "cel_sensor": (("O2_SENSOR", 3), ("ECT_SENSOR", 2), ("MAF_DIRTY", 2), ("INTAKE_LEAK", 1)),
+        "carb_rich": (("CARB_DIRTY", 5), ("PLUGS_WORN", 2), ("FUEL_FILTER_CLOG", 2)),
+        "fuel_economy": (("INJECTORS", 4), ("FUEL_PUMP_WEAK", 2), ("FUEL_FILTER_CLOG", 2)),
+        "idle_dirty": (("THROTTLE_DIRTY", 4), ("MAF_DIRTY", 2), ("INTAKE_LEAK", 1)),
+        "turbo_loss": (("TURBO_WORN", 4), ("INTAKE_LEAK", 3), ("MAF_DIRTY", 1)),
+        "glow_cold": (("GLOW_FAIL", 4), ("BAT_WEAK", 2), ("FUEL_FILTER_CLOG", 2), ("STARTER_FAIL", 1)),
+    }
+)
+
 for _code, _pool in SCENARIO_CAUSES.items():
     for _cause, _weight in _pool:
         if _cause not in CAUSE_BY_CODE or _weight <= 0:
@@ -110,11 +179,14 @@ class TruthFault:
     detail: str = ""
 
 
-def _pick_detail(code: str, scenario_code: str | None, rng: random.Random) -> str:
+def _pick_detail(
+    code: str, scenario_code: str | None, rng: random.Random, tags: "dict[str, object] | None" = None
+) -> str:
+    cylinders = min(int((tags or {}).get("cylinders", 4)), 6)  # type: ignore[call-overload]
     if code == "FUSE_BLOWN":
         return rng.choice(FUSE_CIRCUITS_BY_SCENARIO.get(scenario_code or "", ALL_CIRCUITS))
     if code == "COIL_FAIL":
-        return f"cyl:{rng.randint(1, 4)}"
+        return f"cyl:{rng.randint(1, cylinders)}"
     if code == "THERMOSTAT_STUCK":
         if scenario_code == "vaz_heater":
             return "open"
@@ -125,25 +197,44 @@ def _pick_detail(code: str, scenario_code: str | None, rng: random.Random) -> st
         return rng.choice(("hose", "gasket"))
     if code == "ALT_FAIL":
         return rng.choice(("no_charge", "overcharge", "diode"))
-    if code in ("SUSP_STRUT", "SUSP_LINK"):
+    if code in ("SUSP_STRUT", "SUSP_LINK", "WHEEL_BEARING", "CV_JOINT", "TIE_ROD"):
         return rng.choice(("left", "right"))
     if code == "BRAKE_PADS_WORN":
         return rng.choice(("left", "right", "both"))
+    if code == "INJECTORS":
+        return f"cyl:{rng.randint(1, cylinders)}"
+    if code == "AC_COMP":
+        return rng.choice(("clutch", "worn"))
     return ""
 
 
-def generate_truth(seed: str, scenario_code: str | None) -> list[TruthFault]:
-    """Реальные неисправности автомобиля (1–2 штуки). Результат зависит только от seed."""
+def applicable_causes(tags: "dict[str, object] | None") -> tuple[Cause, ...]:
+    """Причины, возможные на автомобиле с данными тегами (без тегов — все)."""
+    return tuple(c for c in CAUSES if matches(c.requires, tags))
+
+
+def generate_truth(
+    seed: str, scenario_code: str | None, tags: "dict[str, object] | None" = None
+) -> list[TruthFault]:
+    """Реальные неисправности автомобиля (1–2 штуки). Результат зависит только от seed.
+
+    Если переданы теги автомобиля, невозможные для него причины отбрасываются.
+    """
     rng = random.Random(seed)
     pool = SCENARIO_CAUSES.get(scenario_code or "")
     if pool is None:
         pool = tuple((c.code, 1) for c in CAUSES)
+    pool = tuple((code, w) for code, w in pool if matches(CAUSE_BY_CODE[code].requires, tags))
+    if not pool:  # сценарий не подходит машине: берём любые применимые причины
+        pool = tuple((c.code, 1) for c in applicable_causes(tags))
     codes = [code for code, _ in pool]
     weights = [weight for _, weight in pool]
 
     chosen = [rng.choices(codes, weights)[0]]
     consequence = _CONSEQUENCES.get(chosen[0])
-    if consequence and rng.random() < consequence[1]:
+    if consequence and rng.random() < consequence[1] and matches(
+        CAUSE_BY_CODE[consequence[0]].requires, tags
+    ):
         chosen.append(consequence[0])
     elif rng.random() < SECONDARY_CHANCE:
         rest = [c for c in codes if c not in chosen]
@@ -151,5 +242,5 @@ def generate_truth(seed: str, scenario_code: str | None) -> list[TruthFault]:
             rest_weights = [w for c, w in pool if c not in chosen]
             chosen.append(rng.choices(rest, rest_weights)[0])
     return [
-        TruthFault(code, _pick_detail(code, scenario_code, rng)) for code in chosen[:MAX_FAULTS]
+        TruthFault(code, _pick_detail(code, scenario_code, rng, tags)) for code in chosen[:MAX_FAULTS]
     ]

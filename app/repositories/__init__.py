@@ -9,6 +9,7 @@ from app.repositories.inventory_repository import InventoryRepository
 from app.repositories.offer_repository import OfferRepository
 from app.repositories.order_repository import OrderRepository
 from app.repositories.player_repository import PlayerRepository
+from app.repositories.repair_repository import RepairRepository
 
 __all__ = [
     "CarRepository",
@@ -20,4 +21,5 @@ __all__ = [
     "OfferRepository",
     "OrderRepository",
     "PlayerRepository",
+    "RepairRepository",
 ]

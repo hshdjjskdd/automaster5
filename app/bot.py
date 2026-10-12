@@ -28,6 +28,8 @@ BOT_COMMANDS = [
     BotCommand(command="menu", description="Главное меню"),
     BotCommand(command="orders", description="Заказы клиентов"),
     BotCommand(command="workshop", description="Мастерская"),
+    BotCommand(command="shop", description="Магазин запчастей"),
+    BotCommand(command="stock", description="Склад"),
     BotCommand(command="profile", description="Профиль игрока"),
     BotCommand(command="help", description="Справка"),
 ]

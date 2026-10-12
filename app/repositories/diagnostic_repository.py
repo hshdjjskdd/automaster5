@@ -55,6 +55,19 @@ class DiagnosticRepository:
         )
         return result.rowcount == 1
 
+    async def reopen(self, *, order_id: int) -> bool:
+        """Снимает заключение: после неудачной проверки ремонта диагностику можно продолжить."""
+        result = await self._session.execute(
+            update(DiagnosticSession)
+            .where(
+                DiagnosticSession.order_id == order_id,
+                DiagnosticSession.concluded_at.is_not(None),
+            )
+            .values(concluded_at=None)
+            .execution_options(synchronize_session=False)
+        )
+        return result.rowcount == 1
+
     # --- скрытая правда ------------------------------------------------------
 
     async def add_hidden(self, *, order_id: int, cause_code: str, detail: str) -> None:

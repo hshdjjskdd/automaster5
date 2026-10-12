@@ -51,6 +51,9 @@ def render_menu(overview: DiagnosticOverview, *, now: datetime | None = None) ->
         lines += ["", "📝 Заключение вынесено — новые проверки недоступны."]
     elif not overview.can_run:
         lines += ["", "Проверки на этом этапе недоступны."]
+    elif overview.order_status.value in ("in_repair", "awaiting_parts"):
+        lines += ["", "🔁 Диагностика продолжается в ходе ремонта: после неудачной проверки "
+                  "жалоба клиента осталась — ищи следующую причину."]
     else:
         lines += [
             "",
@@ -177,6 +180,6 @@ def render_conclusion_done(result: ConclusionResult) -> str:
     lines = [f"📝 <b>Заключение по заказу №{result.order_id} записано</b>", ""]
     for fault in result.faults:
         lines.append(f"• {escape(fault.name)} <i>({escape(fault.system)})</i>")
-    lines += ["", "Неисправности внесены в заказ. Ремонт появится на следующем этапе."]
+    lines += ["", "Неисправности внесены в заказ. Закупи детали в магазине и переходи к ремонту."]
     return "\n".join(lines)
 

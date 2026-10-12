@@ -4,7 +4,7 @@
 изменение денег, склада и статуса заказа применялись вместе или не применялись вовсе.
 """
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.game_data.enums import CATEGORY_SIGN, TransactionCategory, TransactionType
@@ -24,6 +24,19 @@ class FinanceRepository:
     async def get_balance(self, player_id: int) -> int | None:
         """Текущий баланс игрока или None, если игрока нет."""
         return await self._session.scalar(select(Player.money).where(Player.id == player_id))
+
+    async def last_transaction_id(self, player_id: int) -> int:
+        """Номер последней записи журнала игрока (0, если записей нет).
+
+        Входит в ключ идемпотентности покупок в магазине: экран, показанный до
+        покупки, при повторном нажатии даёт тот же ключ, и деньги не списываются дважды.
+        """
+        value = await self._session.scalar(
+            select(func.max(FinancialTransaction.id)).where(
+                FinancialTransaction.player_id == player_id
+            )
+        )
+        return int(value or 0)
 
     async def get_by_key(self, idempotency_key: str) -> FinancialTransaction | None:
         result = await self._session.execute(

@@ -2,7 +2,18 @@
 
 from aiogram import Router
 
-from app.handlers import diagnostics, errors, fallback, menu, orders, profile, start, workshop
+from app.handlers import (
+    diagnostics,
+    errors,
+    fallback,
+    menu,
+    orders,
+    profile,
+    repair,
+    shop,
+    start,
+    workshop,
+)
 
 
 def get_routers() -> list[Router]:
@@ -15,5 +26,7 @@ def get_routers() -> list[Router]:
         orders.router,
         workshop.router,
         diagnostics.router,
+        shop.router,
+        repair.router,
         fallback.router,
     ]

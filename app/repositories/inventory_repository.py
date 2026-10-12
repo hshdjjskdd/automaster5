@@ -46,6 +46,16 @@ class InventoryRepository:
                 .on_conflict_do_nothing(index_elements=["sku"])
             )
 
+    async def ensure_part(self, spec: PartSpec) -> Part:
+        """Возвращает запчасть с таким SKU, создавая запись при первом обращении."""
+        part = await self.get_part_by_sku(spec.sku)
+        if part is not None:
+            return part
+        await self.seed_parts((spec,))
+        part = await self.get_part_by_sku(spec.sku)
+        assert part is not None
+        return part
+
     async def seed_equipment(self, specs: tuple[EquipmentSpec, ...]) -> None:
         """Добавляет недостающее оборудование. Существующее не изменяется."""
         for spec in specs:

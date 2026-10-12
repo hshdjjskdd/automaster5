@@ -91,16 +91,48 @@ def selected_causes(mask: int) -> list[int]:
     return [i for i in range(len(CAUSES)) if mask >> i & 1]
 
 
-def conclusion_keyboard(order_id: int, mask: int) -> InlineKeyboardMarkup:
+SYSTEMS: tuple[str, ...] = tuple(dict.fromkeys(c.system for c in CAUSES))
+_SYSTEM_MENU_THRESHOLD = 12
+
+
+def system_of(cause_index: int) -> int:
+    return SYSTEMS.index(CAUSES[cause_index].system)
+
+
+def conclusion_keyboard(
+    order_id: int, mask: int, allowed: list[int] | None = None, system: int | None = None
+) -> InlineKeyboardMarkup:
+    """Выбор причин. Показываются только возможные для машины причины (allowed);
+    когда их много, сначала выбирается система автомобиля."""
+    indices = list(range(len(CAUSES))) if allowed is None else allowed
     kb = InlineKeyboardBuilder()
-    for idx, cause in enumerate(CAUSES):
-        mark = "☑️" if mask >> idx & 1 else "☐"
-        kb.button(
-            text=f"{mark} {cause.name}",
-            callback_data=DiagCb(action="tog", order_id=order_id, arg=str(idx), n=mask),
-        )
+    by_system = system is None and len(indices) > _SYSTEM_MENU_THRESHOLD
+    if by_system:
+        for sys_idx, title in enumerate(SYSTEMS):
+            members = [i for i in indices if system_of(i) == sys_idx]
+            if not members:
+                continue
+            chosen = sum(1 for i in members if mask >> i & 1)
+            mark = f" · выбрано {chosen}" if chosen else ""
+            kb.button(
+                text=f"{title} ({len(members)}){mark}",
+                callback_data=DiagCb(action="concl", order_id=order_id, arg=f"s{sys_idx}", n=mask),
+            )
+    else:
+        for idx in indices:
+            if system is not None and system_of(idx) != system:
+                continue
+            mark = "☑️" if mask >> idx & 1 else "☐"
+            kb.button(
+                text=f"{mark} {CAUSES[idx].name}",
+                callback_data=DiagCb(action="tog", order_id=order_id, arg=str(idx), n=mask),
+            )
     kb.adjust(1)
     footer = InlineKeyboardBuilder()
+    if system is not None:
+        footer.button(
+            text="⬅️ К системам", callback_data=DiagCb(action="concl", order_id=order_id, n=mask)
+        )
     if mask:
         footer.button(
             text="✅ Записать заключение",

@@ -12,7 +12,7 @@ rng): шум измерений разный в каждой попытке, н�
 """
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.game_data.diagnostic_checks import (
     CHECK_BY_CODE,
@@ -41,6 +41,8 @@ class VehicleContext:
     engine_code: str
     engine_volume_cc: int
     mileage_km: int
+    # Теги совместимости автомобиля (fleet.build_tags); пусто — старое поведение.
+    tags: dict[str, object] = field(default_factory=dict, hash=False, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,13 +196,18 @@ def _check_starter(ctx: VehicleContext, truth: Truth, rng: random.Random) -> lis
 
 
 def _check_plugs(ctx: VehicleContext, truth: Truth, rng: random.Random) -> list[Reading]:
+    if ctx.tags.get("fuel") == "diesel":
+        from app.game_data.diagnostic_engine_ext import glow_readings
+
+        return glow_readings(ctx, truth, rng)
+    cylinders = min(int(ctx.tags.get("cylinders", 4)), 6)  # type: ignore[call-overload]
     gap = PLUG_GAP_MM.get(ctx.engine_code, DEFAULT_PLUG_GAP_MM)
     worn = "PLUGS_WORN" in truth
     coil_detail = truth.get("COIL_FAIL", "")
     bad_cyl = int(coil_detail.split(":")[1]) if coil_detail.startswith("cyl:") else 0
     lean = any(c in truth for c in ("INTAKE_LEAK", "MAF_DIRTY", "FUEL_PUMP_WEAK", "FUEL_FILTER_CLOG"))
     readings: list[Reading] = []
-    for cyl in range(1, 5):
+    for cyl in range(1, cylinders + 1):
         g = gap + (_u(rng, 0.25, 0.45) if worn else _u(rng, -0.05, 0.1))
         readings.append(
             _num(f"Цилиндр {cyl}: зазор свечи", g, "мм", gap - 0.05, gap + 0.15,
@@ -314,11 +321,17 @@ def _dtcs(truth: Truth, ctx: VehicleContext, rng: random.Random) -> list[tuple[s
 
 def _check_obd(ctx: VehicleContext, truth: Truth, rng: random.Random) -> list[Reading]:
     readings: list[Reading] = []
+    from app.game_data.diagnostic_engine_ext import EXT_DTC_TEXT, extra_dtcs
+
     dtcs = _dtcs(truth, ctx, rng)
+    texts = {**_DTC_TEXT, **EXT_DTC_TEXT}
+    for extra in extra_dtcs(truth, rng):
+        if all(extra != c for c, _ in dtcs):
+            dtcs.append((extra, True))
     if not dtcs:
         readings.append(_text("Коды неисправностей", "ошибок не найдено", OK))
     for code, active in dtcs:
-        title, area = _DTC_TEXT[code]
+        title, area = texts[code]
         readings.append(
             _text(
                 code,
@@ -529,8 +542,10 @@ def _check_visual(ctx: VehicleContext, truth: Truth, rng: random.Random) -> list
             return _text(label, found, WARN)
         return _text(label, clear, OK)
 
+    from app.game_data.diagnostic_engine_ext import visual_extra
+
     leak_hose = truth.get("INTAKE_LEAK") == "hose"
-    return [
+    rows = [
         look("Следы масла на двигателе", "OIL_LEAK", 0.9,
              "потёки на крышке клапанов / поддоне", "сухо"),
         look("Следы охлаждающей жидкости", "COOLANT_LEAK", 0.5,
@@ -544,6 +559,7 @@ def _check_visual(ctx: VehicleContext, truth: Truth, rng: random.Random) -> list
         look("Блок предохранителей", "FUSE_BLOWN", 0.15,
              "один предохранитель потемнел", "визуально все целы"),
     ]
+    return rows + visual_extra(ctx, truth, rng)
 
 
 _HANDLERS = {
@@ -561,13 +577,20 @@ _HANDLERS = {
     "suspension": _check_suspension,
 }
 
-if set(_HANDLERS) != set(CHECK_BY_CODE):
-    raise RuntimeError("Для каждой проверки нужен обработчик измерений")
+
+
+def _handler(check_code: str):  # type: ignore[no-untyped-def]
+    handler = _HANDLERS.get(check_code)
+    if handler is None:  # проверки этапа 5 живут в отдельном модуле
+        from app.game_data.diagnostic_engine_ext import EXT_HANDLERS
+
+        handler = EXT_HANDLERS[check_code]
+    return handler
 
 
 def perform_check(
     check_code: str, ctx: VehicleContext, truth: Truth, rng: random.Random
 ) -> CheckOutcome:
     """Выполняет проверку и возвращает измеренные значения."""
-    readings = _HANDLERS[check_code](ctx, truth, rng)
+    readings = _handler(check_code)(ctx, truth, rng)
     return CheckOutcome(tuple(readings), CHECK_BY_CODE[check_code].interpretation)

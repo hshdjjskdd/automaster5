@@ -29,9 +29,16 @@ def run(check: str, truth: dict[str, str], seed: int, ctx: VehicleContext = CTX)
     return perform_check(check, ctx, truth, random.Random(seed))
 
 
+DIESEL_CTX = VehicleContext(
+    model="Duster", engine_code="K9K", engine_volume_cc=1461, mileage_km=90_000,
+    tags={"fuel": "diesel", "cylinders": 4},
+)
+
+
 def bad_rows(check: str, truth: dict[str, str], seed: int):  # type: ignore[no-untyped-def]
+    ctx = DIESEL_CTX if "GLOW_FAIL" in truth else CTX
     return [
-        r for r in run(check, truth, seed).readings
+        r for r in run(check, truth, seed, ctx).readings
         if r.flag in (WARN, BAD) and r.label not in HERRINGS
     ]
 
@@ -60,10 +67,14 @@ class DataTests(unittest.TestCase):
     def test_all_tools_exist_and_priced(self) -> None:
         self.assertEqual(
             set(TOOL_CODES),
-            {"TOOLSET-BASIC", "MULTIMETER", "OBD-SCANNER", "FUEL-PRESSURE-KIT", "BRAKE-SUSP-TESTER"},
+            {"TOOLSET-BASIC", "MULTIMETER", "OBD-SCANNER", "FUEL-PRESSURE-KIT", "BRAKE-SUSP-TESTER",
+             "COMPRESSION-TESTER", "AC-MANIFOLD"},
         )
         new = {e.code for e in DIAGNOSTIC_EQUIPMENT}
-        self.assertEqual(new, {"MULTIMETER", "FUEL-PRESSURE-KIT", "BRAKE-SUSP-TESTER"})
+        self.assertEqual(
+            new,
+            {"MULTIMETER", "FUEL-PRESSURE-KIT", "BRAKE-SUSP-TESTER", "COMPRESSION-TESTER", "AC-MANIFOLD"},
+        )
 
     def test_checks_cost_time_and_money(self) -> None:
         for c in CHECKS:
@@ -140,7 +151,8 @@ class MeasurementTests(unittest.TestCase):
         details = {
             "FUSE_BLOWN": "fuel_pump", "COIL_FAIL": "cyl:2", "THERMOSTAT_STUCK": "open",
             "INTAKE_LEAK": "hose", "ALT_FAIL": "no_charge", "SUSP_STRUT": "left",
-            "SUSP_LINK": "left", "BRAKE_PADS_WORN": "both",
+            "SUSP_LINK": "left", "BRAKE_PADS_WORN": "both", "WHEEL_BEARING": "left",
+            "CV_JOINT": "left", "TIE_ROD": "left", "INJECTORS": "cyl:2", "AC_COMP": "worn",
         }
         for cause in CAUSES:
             truth = {cause.code: details.get(cause.code, "")}

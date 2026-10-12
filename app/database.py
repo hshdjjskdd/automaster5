@@ -26,7 +26,10 @@ logger = logging.getLogger(__name__)
 #   2 — этап 2: автомобили, заказы, склад, оборудование, финансы, история
 #   3 — этап 3: предложения клиентов (client_offers)
 #   4 — этап 4: диагностика (diagnostic_sessions, hidden_faults, diagnostic_check_runs)
-SCHEMA_VERSION = 4
+#   5 — этап 5: ремонт (repair_operations). Запчасти динамического каталога пишутся в уже
+#       существующую таблицу parts по мере показа/покупки; существующие колонки и данные
+#       не меняются, поэтому достаточно create_all для новой таблицы и повышения версии.
+SCHEMA_VERSION = 5
 
 
 class DatabaseVersionError(RuntimeError):

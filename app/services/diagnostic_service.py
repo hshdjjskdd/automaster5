@@ -32,11 +32,12 @@ from app.game_data.diagnostic_checks import (
     TOOL_CODES,
     TOOL_TITLES,
     CheckDef,
+    check_available,
     check_fee,
 )
 from app.game_data.diagnostic_engine import Reading, VehicleContext, perform_check
 from app.game_data.enums import OrderStatus, TransactionCategory
-from app.game_data.fault_catalog import CAUSE_BY_CODE, generate_truth
+from app.game_data.fault_catalog import CAUSE_BY_CODE, CAUSES, generate_truth, matches
 from app.models import DiagnosticCheckRun, Order
 from app.models.types import utc_now
 from app.repositories import (
@@ -58,10 +59,18 @@ from app.schemas import (
     ToolOption,
 )
 from app.services.transaction import atomic
+from app.services.vehicle import configuration_tags
 
 logger = logging.getLogger(__name__)
 
-CHECKABLE_STATUSES = frozenset({OrderStatus.NEW, OrderStatus.DIAGNOSTICS})
+# Проверки доступны, пока диагностика не завершена заключением. После неудачной проверки
+# ремонта заключение снимается, и диагностику можно продолжить уже в ходе ремонта.
+CHECKABLE_STATUSES = frozenset(
+    {OrderStatus.NEW, OrderStatus.DIAGNOSTICS, OrderStatus.AWAITING_PARTS, OrderStatus.IN_REPAIR}
+)
+CONCLUDABLE_STATUSES = frozenset(
+    {OrderStatus.DIAGNOSTICS, OrderStatus.AWAITING_PARTS, OrderStatus.IN_REPAIR}
+)
 MAX_CONCLUSION_FAULTS = 3
 
 
@@ -126,12 +135,17 @@ class DiagnosticService:
             deadline_at=order.deadline_at,
             concluded=concluded,
             can_run=order.status in CHECKABLE_STATUSES and not concluded,
-            options=tuple(self._option(c, owned, done) for c in CHECKS),
+            options=tuple(
+                self._option(c, owned, done)
+                for c in CHECKS
+                if check_available(c, configuration_tags(config))
+            ),
         )
 
     async def get_check_option(self, player_id: int, order_id: int, check_code: str) -> CheckOption:
         check = self._definition(check_code)
-        await self._get_order(player_id, order_id)
+        order = await self._get_order(player_id, order_id)
+        await self._require_applicable(player_id, order, check)
         owned = await self._owned_tools(player_id)
         done = await self._diag.count_by_check(order_id)
         return self._option(check, owned, done)
@@ -146,6 +160,21 @@ class DiagnosticService:
         if run is None:
             raise OrderNotFound(order_id)
         return _run_view(run)
+
+    async def conclusion_causes(self, player_id: int, order_id: int) -> list[int]:
+        """Индексы причин (в CAUSES), которые можно выбрать в заключении для этой машины.
+
+        Невозможные для автомобиля причины и уже внесённые в заказ не показываются.
+        """
+        order = await self._get_order(player_id, order_id)
+        car = await self._cars.get(player_id, order.car_id, with_configuration=True)
+        assert car is not None
+        tags = configuration_tags(car.configuration)
+        recorded = {f.code for f in await self._faults.list_for_order(order_id)}
+        return [
+            i for i, c in enumerate(CAUSES)
+            if matches(c.requires, tags) and c.code not in recorded
+        ]
 
     async def list_tools(self, player_id: int) -> list[ToolOption]:
         owned = await self._owned_tools(player_id)
@@ -188,6 +217,9 @@ class DiagnosticService:
             order = await self._lock_order(player_id, order_id, CHECKABLE_STATUSES)
             car = await self._cars.get(player_id, order.car_id, with_configuration=True)
             assert car is not None
+            tags = configuration_tags(car.configuration)
+            if not check_available(check, tags):
+                raise UnknownCheck(check.code)
             if order.status == OrderStatus.NEW:
                 await self._orders.transition_status(
                     order_id=order_id,
@@ -197,7 +229,7 @@ class DiagnosticService:
                 )
 
             if await self._diag.create_session_if_missing(order_id=order_id, player_id=player_id):
-                await self._create_truth(player_id, order_id, car.vin)
+                await self._create_truth(player_id, order_id, car.vin, tags)
             session = await self._diag.get_session(order_id)
             assert session is not None
             if session.concluded_at is not None:
@@ -228,6 +260,7 @@ class DiagnosticService:
                 engine_code=config.engine_code,
                 engine_volume_cc=config.engine_volume_cc,
                 mileage_km=car.mileage_km,
+                tags=tags,
             )
             rng = random.Random(f"{order_id}:{car.vin}:{check.code}:{run_no}")
             outcome = perform_check(check.code, context, truth, rng)
@@ -280,8 +313,13 @@ class DiagnosticService:
         try:
             async with atomic(self._session):
                 order = await self._lock_order(
-                    player_id, order_id, {OrderStatus.DIAGNOSTICS}, new_order_error=True
+                    player_id, order_id, CONCLUDABLE_STATUSES, new_order_error=True
                 )
+                car = await self._cars.get(player_id, order.car_id, with_configuration=True)
+                assert car is not None
+                tags = configuration_tags(car.configuration)
+                if any(not matches(CAUSE_BY_CODE[c].requires, tags) for c in codes):
+                    raise InvalidConclusion("Такая неисправность невозможна на этом автомобиле")
                 session = await self._diag.get_session(order_id)
                 if session is None or await self._diag.last_run_no(order_id) == 0:
                     raise DiagnosticsNotStarted(order_id)
@@ -298,6 +336,14 @@ class DiagnosticService:
                         name=cause.name,
                         system=cause.system,
                         severity=cause.severity,
+                    )
+                if order.status == OrderStatus.DIAGNOSTICS:
+                    # Диагностика завершена, неисправности внесены: дальше — запчасти и ремонт.
+                    await self._orders.transition_status(
+                        order_id=order_id,
+                        player_id=player_id,
+                        expected=OrderStatus.DIAGNOSTICS,
+                        new=OrderStatus.AWAITING_PARTS,
                     )
         except IntegrityError as exc:
             raise FaultAlreadyRecorded(",".join(codes)) from exc
@@ -351,10 +397,18 @@ class DiagnosticService:
         items = await self._inventory.list_player_equipment(player_id)
         return {item.equipment.code for item in items}
 
-    async def _create_truth(self, player_id: int, order_id: int, vin: str) -> None:
+    async def _require_applicable(self, player_id: int, order: Order, check: CheckDef) -> None:
+        car = await self._cars.get(player_id, order.car_id, with_configuration=True)
+        assert car is not None
+        if not check_available(check, configuration_tags(car.configuration)):
+            raise UnknownCheck(check.code)
+
+    async def _create_truth(
+        self, player_id: int, order_id: int, vin: str, tags: dict[str, object]
+    ) -> None:
         offer = await self._offers.get_by_order(player_id, order_id)
         scenario = offer.scenario_code if offer else None
-        for fault in generate_truth(f"{order_id}:{vin}", scenario):
+        for fault in generate_truth(f"{order_id}:{vin}", scenario, tags):
             await self._diag.add_hidden(
                 order_id=order_id, cause_code=fault.code, detail=fault.detail
             )

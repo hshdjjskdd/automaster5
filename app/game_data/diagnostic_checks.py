@@ -13,22 +13,30 @@ MULTIMETER = "MULTIMETER"
 OBD_SCANNER = "OBD-SCANNER"
 FUEL_KIT = "FUEL-PRESSURE-KIT"
 BRAKE_TESTER = "BRAKE-SUSP-TESTER"
+COMPRESSION_TESTER = "COMPRESSION-TESTER"
+AC_MANIFOLD = "AC-MANIFOLD"
 
 # Новое оборудование для диагностики (TOOLSET-BASIC и OBD-SCANNER уже есть в каталоге).
 DIAGNOSTIC_EQUIPMENT: tuple[EquipmentSpec, ...] = (
     EquipmentSpec(MULTIMETER, "Мультиметр", EquipmentCategory.DIAGNOSTIC, 1_200, 1),
     EquipmentSpec(FUEL_KIT, "Манометр топливного давления", EquipmentCategory.DIAGNOSTIC, 4_500, 2),
     EquipmentSpec(BRAKE_TESTER, "Тестер тормозов и подвески", EquipmentCategory.DIAGNOSTIC, 6_000, 2),
+    EquipmentSpec(COMPRESSION_TESTER, "Компрессометр", EquipmentCategory.DIAGNOSTIC, 2_500, 1),
+    EquipmentSpec(AC_MANIFOLD, "Манометрический коллектор кондиционера", EquipmentCategory.DIAGNOSTIC, 5_000, 3),
 )
 
 # Инструменты, нужные для диагностики, в порядке показа.
-TOOL_CODES: tuple[str, ...] = (TOOLSET, MULTIMETER, OBD_SCANNER, FUEL_KIT, BRAKE_TESTER)
+TOOL_CODES: tuple[str, ...] = (
+    TOOLSET, MULTIMETER, OBD_SCANNER, FUEL_KIT, BRAKE_TESTER, COMPRESSION_TESTER, AC_MANIFOLD,
+)
 TOOL_TITLES: dict[str, str] = {
     TOOLSET: "Набор инструментов",
     MULTIMETER: "Мультиметр",
     OBD_SCANNER: "OBD-II сканер",
     FUEL_KIT: "Манометр топливного давления",
     BRAKE_TESTER: "Тестер тормозов и подвески",
+    COMPRESSION_TESTER: "Компрессометр",
+    AC_MANIFOLD: "Манометрический коллектор кондиционера",
 }
 
 
@@ -47,9 +55,14 @@ class CheckDef:
     description: str
     # Что умеет и чего не умеет эта проверка (показывается игроку).
     interpretation: str
+    # Условия применимости по тегам автомобиля (пусто — подходит любой машине).
+    requires: tuple[tuple[str, tuple[object, ...]], ...] = ()
 
 
-CHECK_GROUPS: tuple[str, ...] = ("Электрика", "Двигатель", "Охлаждение", "Тормоза и подвеска", "Осмотр")
+CHECK_GROUPS: tuple[str, ...] = (
+    "Электрика", "Двигатель", "Охлаждение", "Тормоза и подвеска", "Трансмиссия и рулевое",
+    "Кондиционер", "Осмотр",
+)
 
 CHECKS: tuple[CheckDef, ...] = (
     CheckDef(
@@ -86,6 +99,7 @@ CHECKS: tuple[CheckDef, ...] = (
         "obd", "Ошибки OBD-II", "📟", "Двигатель", OBD_SCANNER, 5, 0, 300,
         "Чтение кодов неисправностей и живых данных блока управления.",
         "Код указывает на систему или цепь, а не на конкретную деталь: проверь причину замерами.",
+        (("ecu", (True,)),),
     ),
     CheckDef(
         "fuel", "Давление топлива", "⛽", "Двигатель", FUEL_KIT, 20, 0, 600,
@@ -112,7 +126,51 @@ CHECKS: tuple[CheckDef, ...] = (
         "Эффективность амортизаторов и люфты узлов подвески.",
         "Стук и скрип подвески могут давать разные узлы: сравнивай стороны.",
     ),
+    CheckDef(
+        "compression", "Компрессия и ГБЦ", "🗜", "Двигатель", COMPRESSION_TESTER, 30, 0, 400,
+        "Компрессия по цилиндрам, пузырьки в бачке, состояние масла.",
+        "Низкая компрессия в паре соседних цилиндров похожа на ГБЦ, но износ колец даёт другую картину.",
+    ),
+    CheckDef(
+        "timing", "Привод ГРМ", "⛓", "Двигатель", TOOLSET, 35, 0, 200,
+        "Износ ремня или вытяжка цепи, метки ГРМ.",
+        "Шум цепи на холодную бывает и без критического износа: сравнивай с замером люфта.",
+    ),
+    CheckDef(
+        "exhaust", "Анализ выхлопа", "🌫", "Двигатель", TOOLSET, 15, 80, 250,
+        "CO, CH и λ на холостом ходу.",
+        "Богатая смесь не говорит, карбюратор это, форсунки или свечи: сопоставь с другими замерами.",
+    ),
+    CheckDef(
+        "sensors", "Датчики (живые данные)", "📡", "Двигатель", OBD_SCANNER, 15, 0, 300,
+        "Лямбда-зонд, температура ОЖ, дроссель и баланс форсунок.",
+        "Показания датчика могут врать: сверяй с независимым замером.",
+        (("ecu", (True,)),),
+    ),
+    CheckDef(
+        "boost", "Наддув", "🌀", "Двигатель", TOOLSET, 20, 0, 300,
+        "Давление наддува, опрессовка тракта, люфт вала турбины.",
+        "Низкий наддув даёт и сама турбина, и утечка в патрубках.",
+        (("turbo", (True,)),),
+    ),
+    CheckDef(
+        "drivetrain", "Сцепление и КПП", "🕹", "Трансмиссия и рулевое", TOOLSET, 25, 0, 200,
+        "Ход педали, проба на пробуксовку, уровень и состояние масла в коробке.",
+        "Рывки в коробке бывают из-за масла, а не из-за износа механизма.",
+    ),
+    CheckDef(
+        "chassis", "Рулевое, привод и ступицы", "🎡", "Трансмиссия и рулевое", TOOLSET, 30, 0, 200,
+        "Люфты наконечников, подшипников, приводов; жидкость ГУР.",
+        "Стук и гул дают разные узлы: сравнивай левую и правую стороны.",
+    ),
+    CheckDef(
+        "aircond", "Кондиционер", "❄️", "Кондиционер", AC_MANIFOLD, 25, 100, 600,
+        "Давление по сторонам, температура на выходе, муфта компрессора.",
+        "Тёплый воздух бывает из-за утечки хладагента, компрессора и даже вентилятора радиатора.",
+        (("ac", (True,)),),
+    ),
 )
+
 
 CHECK_BY_CODE: dict[str, CheckDef] = {c.code: c for c in CHECKS}
 if len(CHECK_BY_CODE) != len(CHECKS):
@@ -122,6 +180,13 @@ for _check in CHECKS:
         raise RuntimeError(f"Неизвестная группа проверки {_check.code}")
     if _check.tool_code is not None and _check.tool_code not in TOOL_TITLES:
         raise RuntimeError(f"Неизвестный инструмент проверки {_check.code}")
+
+
+def check_available(check: CheckDef, tags: dict[str, object] | None) -> bool:
+    """Подходит ли проверка автомобилю (OBD-II на карбюраторной машине не бывает и т. п.)."""
+    if tags is None:
+        return True
+    return all(tags.get(key) in allowed for key, allowed in check.requires)
 
 
 def check_fee(check: CheckDef, tool_owned: bool) -> int:

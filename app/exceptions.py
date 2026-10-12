@@ -184,3 +184,41 @@ class DiagnosticStale(DomainError):
     def __init__(self, order_id: int) -> None:
         super().__init__("Журнал диагностики уже изменился. Открой меню диагностики заново.")
         self.order_id = order_id
+
+
+class UnknownOperation(DomainError):
+    def __init__(self, code: str) -> None:
+        super().__init__("Такой ремонтной операции нет для этого заказа")
+        self.code = code
+
+
+class OperationAlreadyDone(DomainError):
+    def __init__(self, code: str) -> None:
+        super().__init__("Эта операция уже выполнена")
+        self.code = code
+
+
+class MissingParts(DomainError):
+    """Для операции не хватает подходящих деталей на складе."""
+
+    def __init__(self, missing: list[str]) -> None:
+        super().__init__("Не хватает деталей на складе: " + ", ".join(missing))
+        self.missing = missing
+
+
+class NothingToVerify(DomainError):
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+
+
+class UnknownPart(DomainError):
+    def __init__(self, sku: str) -> None:
+        super().__init__("Такой детали нет в каталоге")
+        self.sku = sku
+
+
+class ShopStale(DomainError):
+    """Экран магазина устарел (деньги или склад изменились после показа кнопки)."""
+
+    def __init__(self) -> None:
+        super().__init__("Экран устарел. Открой магазин заново.")

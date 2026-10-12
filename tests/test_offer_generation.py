@@ -12,7 +12,8 @@ from app.game_data.economy import (
     workshop_capacity,
 )
 from app.game_data.enums import OrderStatus
-from app.game_data.fleet import FLEET
+from app.game_data.fleet import FLEET, MODELS
+from app.game_data.rarity import MODEL_RARITY
 from app.game_data.offer_generator import generate_offer
 from app.game_data.scenarios import SCENARIOS
 from app.schemas import CarConfigurationData, CarData
@@ -29,7 +30,7 @@ NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
 class FleetTests(unittest.TestCase):
     def test_all_required_models_present(self) -> None:
-        self.assertEqual({(t.brand, t.model) for t in FLEET}, REQUIRED_MODELS)
+        self.assertLessEqual(REQUIRED_MODELS, {(t.brand, t.model) for t in FLEET})
 
     def test_models_have_several_trims_with_differences(self) -> None:
         for brand, model in REQUIRED_MODELS:
@@ -49,7 +50,10 @@ class FleetTests(unittest.TestCase):
 
     def test_every_model_has_scenarios_at_level_1(self) -> None:
         for trim in FLEET:
-            fitting = [s for s in SCENARIOS if s.fits(trim.model, trim.transmission, 1)]
+            fitting = [
+                s for s in SCENARIOS
+                if s.fits(trim.model, trim.transmission, 1) and s.fits_tags(trim.tags)
+            ]
             self.assertTrue(fitting, f"{trim.title} {trim.name}")
 
 
@@ -68,6 +72,7 @@ class GeneratorTests(unittest.TestCase):
                 )
                 self.assertIn(d.year, d.trim.years)
                 self.assertTrue(d.scenario.fits(d.trim.model, d.trim.transmission, level))
+                self.assertTrue(d.scenario.fits_tags(d.trim.tags))
                 self.assertGreater(d.payment, 0)
                 self.assertEqual(d.payment % 50, 0)
                 self.assertTrue(d.scenario.symptoms)
@@ -85,8 +90,9 @@ class GeneratorTests(unittest.TestCase):
 
     def test_all_models_appear(self) -> None:
         rng = random.Random(3)
-        seen = {(d.trim.brand, d.trim.model) for d in (generate_offer(rng, 1, NOW) for _ in range(400))}
-        self.assertEqual(seen, REQUIRED_MODELS)
+        seen = {(d.trim.brand, d.trim.model) for d in (generate_offer(rng, 1, NOW) for _ in range(20_000))}
+        expected = {(MODELS[m].brand, MODELS[m].model) for m in MODEL_RARITY}
+        self.assertEqual(seen, expected)
 
     def test_manual_only_scenario_never_on_automatic(self) -> None:
         rng = random.Random(9)

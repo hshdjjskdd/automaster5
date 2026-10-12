@@ -14,6 +14,7 @@ from app.models.inventory import Equipment, Part, PlayerEquipment, StockItem
 from app.models.offer import ClientOffer
 from app.models.order import Order, OrderPart
 from app.models.player import Player
+from app.models.repair import RepairOperation
 
 __all__ = [
     "Base",
@@ -33,5 +34,6 @@ __all__ = [
     "Player",
     "PlayerEquipment",
     "RepairHistory",
+    "RepairOperation",
     "StockItem",
 ]

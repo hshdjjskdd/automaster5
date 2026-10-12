@@ -13,6 +13,7 @@ from app.game_data.labels import (
     ORDER_STATUS_TITLES,
     TRANSMISSION_TITLES,
 )
+from app.game_data.rarity import rarity_emoji
 from app.schemas import Board, CarCard, OfferCard, WorkshopOrderCard
 from app.utils.formatting import format_money
 
@@ -22,13 +23,19 @@ EMPTY_WORKSHOP_TEXT = (
 )
 
 
+def _badge(brand: str, model: str) -> str:
+    """Эмодзи редкости с пробелом (вероятности и текст редкости игроку не показываем)."""
+    emoji = rarity_emoji(brand, model)
+    return f"{emoji} " if emoji else ""
+
+
 def _km(value: int) -> str:
     return f"{value:,}".replace(",", " ") + " км"
 
 
 def render_car(car: CarCard) -> list[str]:
     title = f"{escape(car.brand)} {escape(car.model)}, {car.year}"
-    lines = [f"🚗 <b>{title}</b>"]
+    lines = [f"{_badge(car.brand, car.model) or '🚗'} <b>{title}</b>"]
     if car.trim_name:
         lines.append(f"Комплектация: {escape(car.trim_name)}")
     lines += [
@@ -68,7 +75,7 @@ def render_board(board: Board) -> str:
     for idx, offer in enumerate(board.offers, 1):
         car = offer.car
         lines.append(
-            f"<b>{idx}. {escape(car.brand)} {escape(car.model)}, {car.year}</b> — "
+            f"<b>{idx}. {_badge(car.brand, car.model)}{escape(car.brand)} {escape(car.model)}, {car.year}</b> — "
             f"{format_money(offer.payment)}\n"
             f"    {escape(offer.complaint)}"
         )
@@ -102,7 +109,7 @@ def render_workshop_list(orders: list[WorkshopOrderCard]) -> str:
     for order in orders:
         car = order.car
         lines.append(
-            f"<b>№{order.order_id} {escape(car.brand)} {escape(car.model)}</b> — "
+            f"<b>№{order.order_id} {_badge(car.brand, car.model)}{escape(car.brand)} {escape(car.model)}</b> — "
             f"{ORDER_STATUS_TITLES[order.status]}"
         )
     return "\n".join(lines)

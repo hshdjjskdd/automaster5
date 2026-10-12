@@ -11,6 +11,22 @@ from app.schemas.diagnostics import (
     ToolOption,
 )
 from app.schemas.player import PlayerProfile, RegistrationResult, TelegramUserData
+from app.schemas.repair import (
+    FaultRepairView,
+    FinishResult,
+    NeedView,
+    OperationResult,
+    OperationView,
+    OrderPartsPlan,
+    PlanLine,
+    QualityView,
+    RepairOverview,
+    ShopOrderOption,
+    ShopTypeView,
+    StockLine,
+    UsedPart,
+    VerificationResult,
+)
 from app.schemas.results import (
     LedgerResult,
     OrderCompletionResult,
@@ -27,6 +43,20 @@ from app.schemas.workshop import (
 )
 
 __all__ = [
+    "FaultRepairView",
+    "FinishResult",
+    "NeedView",
+    "OperationResult",
+    "OperationView",
+    "OrderPartsPlan",
+    "PlanLine",
+    "QualityView",
+    "RepairOverview",
+    "ShopOrderOption",
+    "ShopTypeView",
+    "StockLine",
+    "UsedPart",
+    "VerificationResult",
     "CheckOption",
     "CheckRunView",
     "ConclusionFault",

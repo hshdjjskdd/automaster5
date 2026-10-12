@@ -9,6 +9,8 @@ from app.services.inventory_service import InventoryService
 from app.services.order_service import OrderService
 from app.services.player_service import PlayerService
 from app.services.progress_service import ProgressService
+from app.services.repair_service import RepairService
+from app.services.shop_service import ShopService
 
 __all__ = [
     "ClientOrderService",
@@ -19,5 +21,7 @@ __all__ = [
     "OrderService",
     "PlayerService",
     "ProgressService",
+    "RepairService",
+    "ShopService",
     "seed_catalog",
 ]

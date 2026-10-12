@@ -6,7 +6,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.game_data.enums import OrderStatus
 from app.game_data.labels import ORDER_STATUS_TITLES
-from app.keyboards.callbacks import DiagCb
+from app.keyboards.callbacks import DiagCb, RepairCb
 from app.schemas import Board, WorkshopOrderCard
 
 
@@ -54,10 +54,19 @@ def workshop_list_keyboard(orders: list[WorkshopOrderCard]) -> InlineKeyboardMar
 
 def workshop_order_keyboard(order: WorkshopOrderCard) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    if order.status in (OrderStatus.NEW, OrderStatus.DIAGNOSTICS):
+    if order.status in (
+        OrderStatus.NEW, OrderStatus.DIAGNOSTICS, OrderStatus.AWAITING_PARTS, OrderStatus.IN_REPAIR
+    ):
         kb.button(
             text="🔧 Диагностика",
             callback_data=DiagCb(action="menu", order_id=order.order_id),
+        )
+    if order.status in (
+        OrderStatus.DIAGNOSTICS, OrderStatus.AWAITING_PARTS, OrderStatus.IN_REPAIR, OrderStatus.READY
+    ):
+        kb.button(
+            text="🛠 Ремонт",
+            callback_data=RepairCb(action="open", order_id=order.order_id),
         )
     if order.cancel_penalty is not None:
         kb.button(
